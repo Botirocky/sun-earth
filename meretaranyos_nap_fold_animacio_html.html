@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nap–Föld méretarányos animáció</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #000;
+      color: #fff;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      user-select: none;
+    }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    canvas.grab    { cursor: grab; }
+    canvas.grabbing{ cursor: grabbing; }
+
+    .panel {
+      position: absolute;
+      background: rgba(6,14,30,0.90);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(100,170,255,0.22);
+      border-radius: 16px;
+      padding: 16px 20px;
+      z-index: 10;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.55);
+    }
+    .main-panel { top: 20px; left: 20px; max-width: 290px; }
+    .panel h2 { font-size: 13.5px; font-weight: 600; color: #7ec8ff; margin-bottom: 7px; }
+    .panel p  { font-size: 11.5px; color: #7a90b0; line-height: 1.6; margin-bottom: 12px; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .stat {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 7px 9px;
+    }
+    .stat-label { font-size: 9px; color: #445566; text-transform: uppercase; letter-spacing: 0.6px; }
+    .stat-value { font-size: 11.5px; color: #cce8ff; margin-top: 2px; font-weight: 500; }
+
+    /* Info popup on click */
+    .info-popup {
+      position: absolute;
+      background: rgba(6,14,30,0.94);
+      backdrop-filter: blur(18px);
+      border: 1px solid rgba(100,170,255,0.28);
+      border-radius: 14px;
+      padding: 14px 18px;
+      min-width: 230px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.22s;
+      z-index: 20;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+    }
+    .info-popup.visible { opacity: 1; }
+    .info-popup h3 { font-size: 14px; color: #7ec8ff; margin-bottom: 9px; }
+    .info-popup .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 4px;
+      font-size: 11.5px;
+    }
+    .info-popup .row .k { color: #556677; flex-shrink: 0; }
+    .info-popup .row .v { color: #cce8ff; font-weight: 500; text-align: right; }
+
+    /* Time display */
+    .time-panel {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      text-align: right;
+    }
+    .time-panel .tl { font-size: 9.5px; color: #445566; text-transform: uppercase; letter-spacing: 0.6px; }
+    .time-panel .tv { font-size: 15px; color: #aaddff; font-weight: 600; margin-top: 2px; }
+    .time-panel .ts { font-size: 11px; color: #5577aa; margin-top: 3px; }
+
+    /* Controls */
+    .controls {
+      position: absolute;
+      bottom: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      background: rgba(6,14,30,0.90);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(100,170,255,0.18);
+      border-radius: 40px;
+      padding: 8px 18px;
+      z-index: 10;
+    }
+    button {
+      background: rgba(80,140,255,0.14);
+      border: 1px solid rgba(100,170,255,0.28);
+      color: #b8d8ff;
+      border-radius: 20px;
+      padding: 5px 13px;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: background 0.18s, border-color 0.18s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    button:hover { background: rgba(80,140,255,0.26); border-color: rgba(100,170,255,0.52); }
+    button.active { background: rgba(80,140,255,0.36); border-color: rgba(100,170,255,0.68); color: #fff; }
+    .sep { width: 1px; height: 22px; background: rgba(255,255,255,0.08); }
+    .sl { font-size: 11px; color: #6688aa; }
+    input[type=range] { accent-color: #4da6ff; width: 95px; cursor: pointer; }
+
+    .footnote {
+      position: absolute;
+      bottom: 66px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      color: rgba(255,255,255,0.18);
+      white-space: nowrap;
+      pointer-events: none;
+    }
+    .hint {
+      position: absolute;
+      bottom: 66px;
+      right: 20px;
+      font-size: 10.5px;
+      color: rgba(255,255,255,0.2);
+      text-align: right;
+      pointer-events: none;
+      line-height: 1.7;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="c"></canvas>
+
+<div class="panel main-panel">
+  <h2>Nap–Föld méretarányos animáció</h2>
+  <p>A méretek valódi arányban láthatók.<br>A távolság vizuálisan közelítve van.</p>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Nap átmérő</div><div class="stat-value">1 392 700 km</div></div>
+    <div class="stat"><div class="stat-label">Föld átmérő</div><div class="stat-value">12 742 km</div></div>
+    <div class="stat"><div class="stat-label">Távolság</div><div class="stat-value">149,6 M km</div></div>
+    <div class="stat"><div class="stat-label">Méretarány</div><div class="stat-value">1 : 109</div></div>
+  </div>
+</div>
+
+<div class="panel time-panel">
+  <div class="tl">Szimulált idő</div>
+  <div class="tv" id="tvDate">2024. jan. 1.</div>
+  <div class="ts" id="tvSub">1. nap &nbsp;|&nbsp; 0. keringés</div>
+</div>
+
+<div class="info-popup" id="popup">
+  <h3 id="popupTitle"></h3>
+  <div id="popupRows"></div>
+</div>
+
+<div class="controls">
+  <button id="pauseBtn">⏸ Szünet</button>
+  <div class="sep"></div>
+  <button id="raysBtn">☀ Sugarak: Ki</button>
+  <button id="distBtn" class="active">⟷ Távolság: Be</button>
+  <button id="resetBtn">⌂ Reset</button>
+  <div class="sep"></div>
+  <span class="sl">Sebesség:</span>
+  <input type="range" id="speed" min="0.2" max="10" step="0.2" value="1" />
+</div>
+
+<p class="footnote">Scroll = zoom &nbsp;·&nbsp; Drag = mozgatás &nbsp;·&nbsp; Kattintás = részletek</p>
+<div class="hint">Kattints egy égitestre<br>a részletekért</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+
+// ── Camera ──────────────────────────────────────────────────────────────────
+const cam = { x:0, y:0, scale:1, tx:0, ty:0, ts:1 };
+
+function toScreen(wx, wy) {
+  return { x:(wx-cam.x)*cam.scale + W/2, y:(wy-cam.y)*cam.scale + H/2 };
+}
+function toWorld(sx, sy) {
+  return { x:(sx-W/2)/cam.scale + cam.x, y:(sy-H/2)/cam.scale + cam.y };
+}
+function lerpCam(dt) {
+  const k = 1 - Math.pow(0.015, dt/16);
+  cam.x += (cam.tx-cam.x)*k;
+  cam.y += (cam.ty-cam.y)*k;
+  cam.scale += (cam.ts-cam.scale)*k;
+}
+
+// ── World geometry ───────────────────────────────────────────────────────────
+let W, H, sunX, sunY, sunR, earthR, orbitRx, orbitRy, orbitCx;
+let stars = [];
+
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  sunX = W * 0.16;
+  sunY = H * 0.50;
+  sunR = Math.min(H * 0.13, W * 0.065);
+  earthR  = sunR * (6371 / 696000);
+  orbitRx = W * 0.37;
+  orbitRy = H * 0.22;
+  orbitCx = sunX + orbitRx * 0.06;
+  stars = Array.from({length:400}, () => ({
+    x: Math.random()*W*3 - W,
+    y: Math.random()*H*3 - H,
+    r: Math.random()*1.4 + 0.2,
+    base: Math.random()*0.55 + 0.15,
+    phase: Math.random()*Math.PI*2,
+    spd: Math.random()*0.0015 + 0.0003,
+  }));
+}
+
+// ── Simulation state ─────────────────────────────────────────────────────────
+let angle = 0, totalAngle = 0;
+let paused = false, speedMult = 1;
+let showRays = false, showDist = true;
+let hoveredObj = null, focusedObj = null;
+const MONTHS = ['jan.','feb.','már.','ápr.','máj.','jún.','júl.','aug.','szep.','okt.','nov.','dec.'];
+
+function earthPos() {
+  return {
+    x: orbitCx + Math.cos(angle)*orbitRx,
+    y: sunY    + Math.sin(angle)*orbitRy,
+  };
+}
+
+// ── Draw helpers ─────────────────────────────────────────────────────────────
+
+function drawStars(t) {
+  const px = cam.x * 0.25, py = cam.y * 0.25;
+  stars.forEach(s => {
+    const sx = ((s.x - px) % (W*1.6) + W*1.6) % (W*1.6) - W*0.3;
+    const sy = ((s.y - py) % (H*1.6) + H*1.6) % (H*1.6) - H*0.3;
+    const a  = s.base + 0.17*Math.sin(t*s.spd + s.phase);
+    ctx.beginPath();
+    ctx.arc(sx, sy, s.r, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(255,255,255,${a.toFixed(2)})`;
+    ctx.fill();
+  });
+}
+
+function drawOrbit() {
+  const sc = toScreen(orbitCx, sunY);
+  ctx.save();
+  ctx.setLineDash([5,9]);
+  ctx.strokeStyle = 'rgba(140,170,255,0.13)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.ellipse(sc.x, sc.y, orbitRx*cam.scale, orbitRy*cam.scale, 0, 0, Math.PI*2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawSun(t) {
+  const sc = toScreen(sunX, sunY);
+  const sr = sunR * cam.scale;
+  const pulse = 1 + 0.032*Math.sin(t*0.0014);
+
+  // Corona
+  const corona = ctx.createRadialGradient(sc.x, sc.y, sr*0.8, sc.x, sc.y, sr*4*pulse);
+  corona.addColorStop(0,   'rgba(255,190,40,0.22)');
+  corona.addColorStop(0.35,'rgba(255,120,0,0.09)');
+  corona.addColorStop(0.7, 'rgba(255,70,0,0.04)');
+  corona.addColorStop(1,   'rgba(255,50,0,0)');
+  ctx.beginPath();
+  ctx.arc(sc.x, sc.y, sr*4*pulse, 0, Math.PI*2);
+  ctx.fillStyle = corona;
+  ctx.fill();
+
+  // Body
+  const body = ctx.createRadialGradient(sc.x-sr*0.28, sc.y-sr*0.28, sr*0.04, sc.x, sc.y, sr);
+  body.addColorStop(0,    '#fffae0');
+  body.addColorStop(0.28, '#ffe855');
+  body.addColorStop(0.62, '#ffba20');
+  body.addColorStop(0.88, '#ff9500');
+  body.addColorStop(1,    '#cc5500');
+  ctx.beginPath();
+  ctx.arc(sc.x, sc.y, sr, 0, Math.PI*2);
+  ctx.fillStyle = body;
+  ctx.fill();
+
+  // Highlight shimmer
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(sc.x, sc.y, sr, 0, Math.PI*2);
+  ctx.clip();
+  ctx.globalAlpha = 0.08 + 0.05*Math.sin(t*0.0007);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.ellipse(sc.x-sr*0.18, sc.y-sr*0.22, sr*0.62, sr*0.4, -0.4, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  // Hover ring
+  if (hoveredObj==='sun' || focusedObj==='sun') {
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, sr+5, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(255,200,80,0.5)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Label
+  ctx.save();
+  ctx.font = `bold ${Math.max(11,13*cam.scale)}px Segoe UI,Arial`;
+  ctx.fillStyle = 'rgba(255,210,80,0.9)';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 5;
+  ctx.fillText('Nap', sc.x, sc.y + sr + 18*Math.max(1,cam.scale));
+  ctx.restore();
+}
+
+function drawSunRays(ep) {
+  const sc  = toScreen(sunX, sunY);
+  const sr  = sunR * cam.scale;
+  const es  = toScreen(ep.x, ep.y);
+  const toE = Math.atan2(es.y-sc.y, es.x-sc.x);
+  const N   = 14;
+
+  for (let i=0; i<N; i++) {
+    const a = (i/N)*Math.PI*2;
+    const diff = Math.abs(((a-toE + Math.PI*3) % (Math.PI*2)) - Math.PI);
+    const isMain = diff < 0.2;
+    const len = isMain
+      ? Math.hypot(es.x-sc.x, es.y-sc.y) * 0.91
+      : sr * 2.4;
+    const alpha = isMain ? 0.72 : 0.16;
+
+    const x1 = sc.x + Math.cos(a)*sr;
+    const y1 = sc.y + Math.sin(a)*sr;
+    const x2 = sc.x + Math.cos(a)*(sr+len);
+    const y2 = sc.y + Math.sin(a)*(sr+len);
+
+    ctx.save();
+    ctx.setLineDash(isMain ? [] : [6,6]);
+    ctx.strokeStyle = isMain ? `rgba(255,240,100,${alpha})` : `rgba(255,200,50,${alpha})`;
+    ctx.lineWidth   = isMain ? 1.6 : 0.8;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    if (isMain) {
+      ctx.setLineDash([]);
+      const aw = 8;
+      const ra = Math.atan2(y2-y1, x2-x1);
+      ctx.fillStyle = 'rgba(255,240,100,0.8)';
+      ctx.beginPath();
+      ctx.moveTo(x2, y2);
+      ctx.lineTo(x2 - aw*Math.cos(ra-0.38), y2 - aw*Math.sin(ra-0.38));
+      ctx.lineTo(x2 - aw*Math.cos(ra+0.38), y2 - aw*Math.sin(ra+0.38));
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function drawDistanceLine(ep) {
+  const sc = toScreen(sunX, sunY);
+  const ec = toScreen(ep.x, ep.y);
+  const sr = sunR * cam.scale;
+  const er = Math.max(earthR*cam.scale, 3.5);
+
+  const dx = ec.x-sc.x, dy = ec.y-sc.y;
+  const d  = Math.hypot(dx, dy);
+  const ux = dx/d, uy = dy/d;
+
+  const x1 = sc.x + ux*sr, y1 = sc.y + uy*sr;
+  const x2 = ec.x - ux*er, y2 = ec.y - uy*er;
+
+  // Line
+  ctx.save();
+  ctx.setLineDash([5,7]);
+  ctx.strokeStyle = 'rgba(180,220,255,0.32)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Tick marks
+  const px = -uy*5, py = ux*5;
+  [[x1,y1],[x2,y2]].forEach(([px2,py2]) => {
+    ctx.beginPath();
+    ctx.moveTo(px2-px, py2-py);
+    ctx.lineTo(px2+px, py2+py);
+    ctx.strokeStyle = 'rgba(180,220,255,0.48)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  });
+
+  // Label
+  const mx = (x1+x2)/2, my = (y1+y2)/2 - 13;
+  ctx.font = '11px Segoe UI,Arial';
+  ctx.fillStyle = 'rgba(180,215,255,0.82)';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur  = 4;
+  ctx.fillText('~149 600 000 km', mx, my);
+  ctx.shadowBlur  = 0;
+  ctx.restore();
+}
+
+function drawEarth(ep, t) {
+  const sc    = toScreen(ep.x, ep.y);
+  const drawR = Math.max(earthR * cam.scale, 3);
+  const rot   = t * 0.00028; // self-rotation
+
+  // Atmosphere halo
+  const atmo = ctx.createRadialGradient(sc.x, sc.y, drawR*0.7, sc.x, sc.y, drawR*5.5);
+  atmo.addColorStop(0,   'rgba(70,150,255,0.18)');
+  atmo.addColorStop(0.5, 'rgba(50,110,200,0.06)');
+  atmo.addColorStop(1,   'rgba(30,60,180,0)');
+  ctx.beginPath();
+  ctx.arc(sc.x, sc.y, drawR*5.5, 0, Math.PI*2);
+  ctx.fillStyle = atmo;
+  ctx.fill();
+
+  // Ocean body
+  const body = ctx.createRadialGradient(sc.x-drawR*0.3, sc.y-drawR*0.3, 0, sc.x, sc.y, drawR);
+  body.addColorStop(0,    '#aadeff');
+  body.addColorStop(0.32, '#4499ee');
+  body.addColorStop(0.68, '#1155cc');
+  body.addColorStop(1,    '#082055');
+  ctx.beginPath();
+  ctx.arc(sc.x, sc.y, drawR, 0, Math.PI*2);
+  ctx.fillStyle = body;
+  ctx.fill();
+
+  // Continents + clouds (only if large enough to matter)
+  if (drawR > 8) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, drawR, 0, Math.PI*2);
+    ctx.clip();
+
+    // Continents
+    ctx.fillStyle = 'rgba(75,155,55,0.78)';
+    [
+      [-0.05,-0.30, 0.28,0.22, rot],
+      [ 0.30,-0.15, 0.20,0.35, rot+0.3],
+      [-0.35, 0.20, 0.18,0.22, rot+1.0],
+      [ 0.10, 0.40, 0.22,0.15, rot+0.5],
+      [-0.15, 0.08, 0.12,0.18, rot+2.0],
+      [ 0.00,-0.50, 0.30,0.10, rot+0.8],   // polar ice
+    ].forEach(([rx,ry,rw,rh,r]) => {
+      ctx.beginPath();
+      ctx.ellipse(sc.x+rx*drawR*2, sc.y+ry*drawR*2, rw*drawR, rh*drawR, r, 0, Math.PI*2);
+      ctx.fill();
+    });
+
+    // Polar ice caps
+    ctx.fillStyle = 'rgba(230,245,255,0.82)';
+    [[-0.55, 0.25, 0.10], [0.52, 0.20, 0.09]].forEach(([ry,rw,rh]) => {
+      ctx.beginPath();
+      ctx.ellipse(sc.x, sc.y+ry*drawR*2, rw*drawR*2, rh*drawR*2, 0, 0, Math.PI*2);
+      ctx.fill();
+    });
+
+    // Clouds
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    [
+      [ 0.38,-0.18, 0.32,0.09, rot*0.65],
+      [-0.20, 0.32, 0.28,0.08, rot*0.65+1],
+      [ 0.08, 0.06, 0.26,0.07, rot*0.65+2],
+    ].forEach(([rx,ry,rw,rh,r]) => {
+      ctx.beginPath();
+      ctx.ellipse(sc.x+rx*drawR*1.5, sc.y+ry*drawR*1.5, rw*drawR, rh*drawR, r, 0, Math.PI*2);
+      ctx.fill();
+    });
+
+    // Night-side shadow
+    const sunSc = toScreen(sunX, sunY);
+    const sha = Math.atan2(sc.y-sunSc.y, sc.x-sunSc.x);
+    const shadow = ctx.createRadialGradient(
+      sc.x+Math.cos(sha)*drawR*0.35, sc.y+Math.sin(sha)*drawR*0.35, drawR*0.08,
+      sc.x+Math.cos(sha)*drawR*0.18, sc.y+Math.sin(sha)*drawR*0.18, drawR*1.12
+    );
+    shadow.addColorStop(0,    'rgba(0,0,18,0.85)');
+    shadow.addColorStop(0.45, 'rgba(0,0,12,0.52)');
+    shadow.addColorStop(0.65, 'rgba(0,0,5,0.1)');
+    shadow.addColorStop(1,    'rgba(0,0,0,0)');
+    ctx.fillStyle = shadow;
+    ctx.fillRect(sc.x-drawR*2, sc.y-drawR*2, drawR*4, drawR*4);
+
+    ctx.restore();
+
+    // Atmosphere rim glow
+    const rim = ctx.createRadialGradient(sc.x, sc.y, drawR*0.88, sc.x, sc.y, drawR*1.1);
+    rim.addColorStop(0,   'rgba(100,180,255,0)');
+    rim.addColorStop(0.6, 'rgba(100,180,255,0.11)');
+    rim.addColorStop(1,   'rgba(100,180,255,0.28)');
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, drawR*1.1, 0, Math.PI*2);
+    ctx.fillStyle = rim;
+    ctx.fill();
+  }
+
+  // Hover ring
+  if (hoveredObj==='earth' || focusedObj==='earth') {
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, drawR+5, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(80,180,255,0.55)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Label
+  ctx.save();
+  ctx.font = `${Math.max(10,12*cam.scale)}px Segoe UI,Arial`;
+  ctx.fillStyle = 'rgba(170,215,255,0.9)';
+  ctx.textAlign = 'center';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur  = 5;
+  ctx.fillText('Föld', sc.x, sc.y - drawR - 7);
+  ctx.restore();
+}
+
+// ── Info popup ───────────────────────────────────────────────────────────────
+const SUN_INFO = [
+  ['Típus',           'G-típusú fősorozati csillag'],
+  ['Tömeg',           '1,989 × 10³⁰ kg'],
+  ['Átmérő',          '1 392 700 km'],
+  ['Felszíni hőm.',   '5 778 K'],
+  ['Maghőmérséklet',  '~15 millió K'],
+  ['Fényesség',       '3,828 × 10²⁶ W'],
+  ['Kor',             '~4,6 milliárd év'],
+];
+const EARTH_INFO = [
+  ['Típus',           'Szilikátos kőzetbolygó'],
+  ['Tömeg',           '5,972 × 10²⁴ kg'],
+  ['Átmérő',          '12 742 km'],
+  ['Felszíni hőm.',   '15 °C (átlag)'],
+  ['Keringési idő',   '365,25 nap'],
+  ['Tengelyforgás',   '23,93 óra'],
+  ['Holdak száma',    '1 (Hold)'],
+];
+
+function updatePopup(ep) {
+  const popup = document.getElementById('popup');
+  const obj   = focusedObj || hoveredObj;
+  if (!obj) { popup.classList.remove('visible'); return; }
+
+  const wpos = obj==='sun' ? {x:sunX,y:sunY} : ep;
+  const sc   = toScreen(wpos.x, wpos.y);
+  const r    = (obj==='sun' ? sunR : Math.max(earthR,5)) * cam.scale;
+
+  document.getElementById('popupTitle').textContent = obj==='sun' ? '☀ Nap' : '🌍 Föld';
+  const rows = obj==='sun' ? SUN_INFO : EARTH_INFO;
+  document.getElementById('popupRows').innerHTML = rows.map(
+    ([k,v]) => `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`
+  ).join('');
+
+  popup.classList.add('visible');
+  const pw = popup.offsetWidth, ph = popup.offsetHeight;
+  let lx = sc.x + r + 18, ly = sc.y - 60;
+  if (lx + pw > W - 10) lx = sc.x - r - pw - 18;
+  if (ly + ph > H - 10) ly = H - ph - 10;
+  if (ly < 10) ly = 10;
+  popup.style.left = lx + 'px';
+  popup.style.top  = ly + 'px';
+}
+
+// ── Time display ─────────────────────────────────────────────────────────────
+function updateTime() {
+  const totalDays = (totalAngle / (Math.PI*2)) * 365.25;
+  const years     = Math.floor(totalDays / 365.25);
+  const dayOfYear = Math.floor(totalDays % 365.25);
+  const d = new Date(2024, 0, 1);
+  d.setDate(d.getDate() + Math.floor(totalDays));
+  document.getElementById('tvDate').textContent =
+    `${d.getFullYear()}. ${MONTHS[d.getMonth()]} ${d.getDate()}.`;
+  document.getElementById('tvSub').textContent =
+    `${dayOfYear+1}. nap  |  ${years}. keringés`;
+}
+
+// ── Main loop ─────────────────────────────────────────────────────────────────
+let lastT = null;
+function animate(t) {
+  if (!lastT) lastT = t;
+  const dt = Math.min(t - lastT, 50);
+  lastT = t;
+
+  if (!paused) {
+    const delta = 0.00075 * speedMult * (dt/16);
+    angle += delta;
+    totalAngle += delta;
+    updateTime();
+  }
+
+  lerpCam(dt);
+
+  ctx.clearRect(0, 0, W, H);
+  drawStars(t);
+  drawOrbit();
+
+  const ep = earthPos();
+
+  if (showRays) drawSunRays(ep);
+  if (showDist) drawDistanceLine(ep);
+  drawSun(t);
+  drawEarth(ep, t);
+  updatePopup(ep);
+
+  requestAnimationFrame(animate);
+}
+
+// ── Input ────────────────────────────────────────────────────────────────────
+function hitTest(sx, sy) {
+  const ss = toScreen(sunX, sunY);
+  const ep = earthPos();
+  const es = toScreen(ep.x, ep.y);
+  const sr = sunR * cam.scale;
+  const er = Math.max(earthR*cam.scale + 8, 20);
+  if (Math.hypot(sx-ss.x, sy-ss.y) < sr) return 'sun';
+  if (Math.hypot(sx-es.x, sy-es.y) < er) return 'earth';
+  return null;
+}
+
+const drag = { active:false, sx:0, sy:0, cx:0, cy:0 };
+
+canvas.addEventListener('mousemove', e => {
+  if (drag.active) {
+    cam.tx = drag.cx - (e.clientX-drag.sx)/cam.scale;
+    cam.ty = drag.cy - (e.clientY-drag.sy)/cam.scale;
+    cam.x  = cam.tx; cam.y = cam.ty;
+    return;
+  }
+  hoveredObj = hitTest(e.clientX, e.clientY);
+  canvas.className = hoveredObj ? 'grab' : '';
+});
+
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const hit = hitTest(e.clientX, e.clientY);
+  if (hit) {
+    if (focusedObj === hit) {
+      focusedObj = null;
+      cam.tx = 0; cam.ty = 0; cam.ts = 1;
+    } else {
+      focusedObj = hit;
+      if (hit === 'sun') {
+        cam.tx = sunX; cam.ty = sunY;
+        cam.ts = Math.min(W, H) / (sunR * 7);
+      } else {
+        const ep = earthPos();
+        cam.tx = ep.x; cam.ty = ep.y;
+        cam.ts = Math.min(W, H) / (Math.max(earthR, 4) * 55);
+      }
+    }
+  } else {
+    focusedObj = null;
+    drag.active = true;
+    drag.sx = e.clientX; drag.sy = e.clientY;
+    drag.cx = cam.tx; drag.cy = cam.ty;
+    canvas.className = 'grabbing';
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  drag.active = false;
+  canvas.className = hoveredObj ? 'grab' : '';
+});
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const f = e.deltaY < 0 ? 1.13 : 0.885;
+  const w = toWorld(e.clientX, e.clientY);
+  cam.ts = Math.max(0.12, Math.min(100, cam.ts * f));
+  cam.scale = cam.ts;
+  cam.tx = w.x - (e.clientX - W/2) / cam.ts;
+  cam.ty = w.y - (e.clientY - H/2) / cam.ts;
+  cam.x = cam.tx; cam.y = cam.ty;
+}, { passive:false });
+
+// Touch pinch-zoom
+let touches = {}, lastPinch = null;
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) touches[t.identifier] = {x:t.clientX, y:t.clientY};
+  const pts = Object.values(touches);
+  if (pts.length === 1) {
+    drag.active = true;
+    drag.sx = pts[0].x; drag.sy = pts[0].y;
+    drag.cx = cam.tx; drag.cy = cam.ty;
+  }
+}, {passive:false});
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) touches[t.identifier] = {x:t.clientX, y:t.clientY};
+  const pts = Object.values(touches);
+  if (pts.length === 2) {
+    const d = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+    if (lastPinch) {
+      const f = d / lastPinch;
+      cam.ts = Math.max(0.12, Math.min(100, cam.ts * f));
+      cam.scale = cam.ts;
+    }
+    lastPinch = d;
+    drag.active = false;
+  } else if (pts.length===1 && drag.active) {
+    cam.tx = drag.cx - (pts[0].x-drag.sx)/cam.scale;
+    cam.ty = drag.cy - (pts[0].y-drag.sy)/cam.scale;
+    cam.x = cam.tx; cam.y = cam.ty;
+    lastPinch = null;
+  }
+}, {passive:false});
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) delete touches[t.identifier];
+  if (Object.keys(touches).length < 2) lastPinch = null;
+  if (Object.keys(touches).length === 0) drag.active = false;
+}, {passive:false});
+
+// ── Buttons ──────────────────────────────────────────────────────────────────
+document.getElementById('pauseBtn').addEventListener('click', function() {
+  paused = !paused;
+  this.textContent = paused ? '▶ Folytatás' : '⏸ Szünet';
+});
+document.getElementById('raysBtn').addEventListener('click', function() {
+  showRays = !showRays;
+  this.textContent = `☀ Sugarak: ${showRays ? 'Be' : 'Ki'}`;
+  this.classList.toggle('active', showRays);
+});
+document.getElementById('distBtn').addEventListener('click', function() {
+  showDist = !showDist;
+  this.textContent = `⟷ Távolság: ${showDist ? 'Be' : 'Ki'}`;
+  this.classList.toggle('active', showDist);
+});
+document.getElementById('resetBtn').addEventListener('click', () => {
+  cam.tx = 0; cam.ty = 0; cam.ts = 1;
+  focusedObj = null;
+});
+document.getElementById('speed').addEventListener('input', function() {
+  speedMult = parseFloat(this.value);
+});
+
+window.addEventListener('resize', resize);
+resize();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
